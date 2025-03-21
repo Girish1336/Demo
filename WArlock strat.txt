@@ -1,0 +1,70 @@
+//@version=5
+strategy("Supply & Demand with Liquidity Zones + Trend Filter", overlay=true, default_qty_type=strategy.cash, default_qty_value=10)
+// 🔹 Parameters
+lookbackLength = input.int(50, minval=1, title="Lookback Length")
+liquidityStrength = input.int(3, minval=1, title="Liquidity Strength")
+lotSize = 0.05  // Fixed lot size
+atrLength = input.int(14, title="ATR Length")
+// 🔹 Define Supply & Demand Thresholds
+supplyZoneThreshold = input.float(1.5, title="Supply Zone Percentage") / 100.0
+var float lastSupplyZone = na
+var float lastDemandZone = na
+// 🔹 Identify Swing Highs & Lows
+swingHigh = high == ta.highest(high, lookbackLength)
+swingLow = low == ta.lowest(low, lookbackLength)
+if swingHigh
+    lastSupplyZone := high
+if swingLow
+    lastDemandZone := low
+// 🔹 Improved Liquidity Zone Detection
+liquidityHigh = high == ta.highest(high, lookbackLength)
+liquidityLow = low == ta.lowest(low, lookbackLength)
+liqHighCount = ta.barssince(liquidityHigh) < liquidityStrength
+liqLowCount = ta.barssince(liquidityLow) < liquidityStrength
+strongLiquidityHigh = liquidityHigh and liqHighCount
+strongLiquidityLow = liquidityLow and liqLowCount
+// 🔹 Trend Filter with MA
+maLength = input.int(50, title="Moving Average Length")
+ma = ta.sma(close, maLength)
+trendTolerance = 0.002  // 0.2% tolerance for flexible trend following
+trendUp = close > ma * (1 - trendTolerance)
+trendDown = close < ma * (1 + trendTolerance)
+// 🔹 ATR for SL/TP
+atr = ta.atr(atrLength)
+// 🔹 Improved Reversal Patterns at Key Zones
+isPinBarSupply = high - math.max(open, close) > 2 * (close - open) and close < open
+isPinBarDemand = math.min(open, close) - low > 2 * (close - open) and close > open
+isBearishEngulfing = open[1] > close[1] and open < close and close > open[1] and open[1] > close
+isBullishEngulfing = open[1] < close[1] and open > close and close < open[1] and open[1] < close
+isDoji = math.abs(open - close) <= 0.1 * (high - low)
+// 🔹 Proximity to Key Levels with Wider Tolerance
+zoneTolerance = 0.005  // Slightly increased tolerance
+closeToSupply = not na(lastSupplyZone) and high >= lastSupplyZone * (1 - zoneTolerance)
+closeToDemand = not na(lastDemandZone) and low <= lastDemandZone * (1 + zoneTolerance)
+// 🔹 Signal Conditions with Confirmation
+longSignal = closeToDemand and (isPinBarDemand or isBullishEngulfing or isDoji) and strongLiquidityLow and trendUp
+shortSignal = closeToSupply and (isPinBarSupply or isBearishEngulfing or isDoji) and strongLiquidityHigh and trendDown
+// 🔹 Improved SL and TP Using ATR
+longStopLoss = close - atr * 1.5
+longTakeProfit = close + atr * 3
+shortStopLoss = close + atr * 1.5
+shortTakeProfit = close - atr * 3
+// 🔹 Execute Trades Only on Valid Signals
+if longSignal
+    strategy.entry("Long", strategy.long, qty=lotSize)
+    strategy.exit("Long Exit", from_entry="Long", stop=longStopLoss, limit=longTakeProfit)
+if shortSignal
+    strategy.entry("Short", strategy.short, qty=lotSize)
+    strategy.exit("Short Exit", from_entry="Short", stop=shortStopLoss, limit=shortTakeProfit)
+// 🔹 Plot Signals
+plotshape(longSignal, title="Long Entry", location=location.belowbar, color=color.green, style=shape.labelup, text="BUY")
+plotshape(shortSignal, title="Short Entry", location=location.abovebar, color=color.red, style=shape.labeldown, text="SELL")
+// 🔹 Plot Supply & Demand Zones
+plot(lastSupplyZone, title="Supply Zone", color=color.red, linewidth=2, style=plot.style_stepline)
+plot(lastDemandZone, title="Demand Zone", color=color.green, linewidth=2, style=plot.style_stepline)
+// 🔹 Plot Liquidity Zones
+plotshape(strongLiquidityHigh, title="Liquidity Grab High", location=location.abovebar, color=color.orange, style=shape.triangleup, text="LQH")
+plotshape(strongLiquidityLow, title="Liquidity Grab Low", location=location.belowbar, color=color.blue, style=shape.triangledown, text="LQL")
+// 🔹 Plot Trend MA and ATR as Lines
+plot(ma, title="Moving Average", color=color.blue, linewidth=2)
+plot(atr, title="ATR", color=color.purple, linewidth=2)
